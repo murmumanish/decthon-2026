@@ -1,16 +1,21 @@
 import express from "express";
-import cors from "cors";
+import path from 'path';
+import { fileURLToPath } from 'url';
 import fetch from "node-fetch";
 import { QdrantClient } from "@qdrant/js-client-rest";
 
+
 const app = express();
+const PORT = 3000;
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 
 // ---------- Middleware ----------
 app.use(express.json());
 
-// Allow requests from frontend and file:// (for testing)
-app.use(cors());          // allow all origins for simplicity
-app.options("*", cors()); // handle preflight requests
+app.use(express.static(path.resolve(__dirname, 'ui')));
 
 // ---------- Qdrant + Ollama setup ----------
 const OLLAMA = process.env.OLLAMA_URL; 
@@ -43,6 +48,12 @@ async function embed(text) {
 
   return json.embedding;
 }
+
+// Serving the HTML
+app.get('/',(req,res) => {
+    res.sendFile(path.resolve(__dirname, 'ui', 'index.html'));
+  })
+
 
 /* ---------- Ingest endpoint ---------- */
 app.post("/ingest", async (req, res) => {
@@ -102,7 +113,9 @@ app.post("/ask", async (req, res) => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         model: "granite4:350m",
-        prompt: `Answer using context only:\n${context}\n\nQuestion: ${question}`
+        //prompt: `Answer using context only:\n${context}\n\nQuestion: ${question}`
+        prompt:`You are an AI assistant using retrieval-augmented generation.Answer \n\nQuestion: ${question} ONLY using the provided \n${context}.If the answer is not present in the \n${context}, respond with:"I don't have enough information to answer that."
+`
       })
     });
 
@@ -129,7 +142,6 @@ app.post("/ask", async (req, res) => {
 });
 
 /* ---------- Start server ---------- */
-const PORT = 3000;
 app.listen(PORT, () => {
   console.log(`Agent running on http://localhost:${PORT}`);
 });
