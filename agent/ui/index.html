@@ -251,40 +251,86 @@
    const dataBtn = document.getElementById("dataBtn");
    const dataStatus = document.getElementById("dataStatus");
 
+   // Append Message
+   function appendToMsg(msgEl, text) {
+      msgEl.textContent += text;
+      messages.scrollTop = messages.scrollHeight;
+    }
+
   
 
    // Add message to chat
    function addMsg(text, isUser) {
-     const msg = document.createElement("div");
-     msg.className = `msg ${isUser ? "user" : "ai"}`;
-     msg.innerHTML = `<div>${text}</div>`;
-     messages.appendChild(msg);
-     messages.scrollTop = messages.scrollHeight;
-   }
+      const msg = document.createElement("div");
+      msg.className = `msg ${isUser ? "user" : "ai"}`;
+
+      const content = document.createElement("div");
+      content.textContent = text; // SAFE for streaming
+      msg.appendChild(content);
+
+      messages.appendChild(msg);
+      messages.scrollTop = messages.scrollHeight;
+
+      return content; // 👈 RETURN ELEMENT FOR STREAMING
+    }
+
 
    // Send chat message
    async function sendMessage() {
-     const text = chatInput.value.trim();
-     if (!text) return;
+  const text = chatInput.value.trim();
+  if (!text) return;
 
-     addMsg(text, true);  // Add user message
-     chatInput.value = "";  // Clear input field
-     chatBtn.disabled = true;  // Disable button while waiting for response
+  addMsg(text, true);      // user message
+  chatInput.value = "";
+  chatBtn.disabled = true;
 
-     try {
-       const res = await fetch(`${backendUrl}/ask`, {
-         method: "POST",
-         headers: { "Content-Type": "application/json" },
-         body: JSON.stringify({ question: text })
-       });
-       const data = await res.json();
-       addMsg(data.answer || "No response from backend", false);  // AI response
-     } catch {
-       addMsg("Connection error. Please check if backend is running.", false);  // Error message
-     } finally {
-       chatBtn.disabled = false;  // Enable button after response
-     }
-   }
+  try {
+    const res = await fetch(`${backendUrl}/ask/stream`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question: text }),
+    });
+
+    if (!res.ok || !res.body) {
+      throw new Error("Streaming failed");
+    }
+
+    // Create empty AI message
+    const aiMsgEl = addMsg("", false);
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder("utf-8");
+
+    let buffer = "";
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+
+      // SSE messages end with \n\n
+      const events = buffer.split("\n\n");
+      buffer = events.pop();
+
+      for (const event of events) {
+        if (event.startsWith("data: ")) {
+          const token = event.slice(6);
+          appendToMsg(aiMsgEl, token);
+        }
+      }
+    }
+  } catch (err) {
+    console.error(err);
+    addMsg(
+      "Connection error. Please check if backend is running.",
+      false
+    );
+  } finally {
+    chatBtn.disabled = false;
+  }
+}
+
 
    chatBtn.onclick = sendMessage;
    chatInput.onkeypress = (e) => {
